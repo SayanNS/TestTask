@@ -1,126 +1,88 @@
 #include "shared_container.h"
 
-SharedContainer::SharedContainer()
-{
-	head = NULL;
-	tail = (Node*) -1; // NOT NULL VALUE
-}
-
-void SharedContainer::push(Node *node)
+void SharedContainer::push(unsigned char* buffer)
 {
 	rw_mtx.lock();
 
-	if (node != NULL)
+	if (queue.empty())
 	{
-		node->next = NULL;
-	}
-
-	if (head == NULL)
-	{
-		head = node;
-		tail = node;
-		
+		queue.push(buffer);
 		rw_mtx.unlock();
 		cv.notify_one();
 	}
 	else
 	{
-		tail->next = node;
-		tail = node;
-
+		queue.push(buffer);
 		rw_mtx.unlock();
 	}
 }
 
-Node* SharedContainer::pop()
+unsigned char* SharedContainer::pop(bool wait)
 {
 	std::unique_lock<std::mutex> lk(rw_mtx);
 
-	if (head == NULL)
+	if (wait)
 	{
-		if (tail == NULL)
-		{
-			lk.unlock();
-			return NULL;
-		}
-
-		cv.wait(lk);
-
-		if (tail == NULL)
-		{
-			lk.unlock();
-			return NULL;
-		}
-	}
-
-	Node* node = head;
-	head = node->next;
-	lk.unlock();
-
-	return node;
-}
-
-SharedPool::SharedPool()
-{
-	head = NULL;
-	count = 0;
-}
-
-SharedPool::~SharedPool()
-{
-	while (head)
-	{
-		Node *node = head;
-		head = node->next;
-
-		delete [] node->buffer;
-		delete node;
-	}
-}
-
-void SharedPool::push(Node* node)
-{
-	rw_mtx.lock();
-
-	if (head == NULL && count == MAX_POOL_SIZE)
-	{
-		node->next = head;
-		head = node;
-
-		rw_mtx.unlock();
-		cv.notify_one();
-	}
-	else
-	{
-		node->next = head;
-		head = node;
-
-		rw_mtx.unlock();
-	}
-}
-
-Node* SharedPool::pop()
-{
-	std::unique_lock<std::mutex> lk(rw_mtx);
-
-	if (head == NULL)
-	{
-		if (count < MAX_POOL_SIZE)
-		{
-			count++;
-			lk.unlock();
-
-			return NULL;
-		}
-		else
+		if (queue.empty())
 		{
 			cv.wait(lk);
 		}
+
+		unsigned char *buffer = queue.front();
+		queue.pop();
+		lk.unlock();
+
+		return buffer;
+	}
+	else
+	{
+		if (queue.empty())
+		{
+			lk.unlock();
+			return NULL;
+		}
+
+		unsigned char *buffer = queue.front();
+
+		if (buffer)
+		{
+			queue.pop();
+		}
+
+		lk.unlock();
+
+		return buffer;
+	}
+}
+
+SharedPool::SharedPool(int buffer_size)
+{
+	pool_count = 0;
+
+	this->buffer_size = buffer_size;
+}
+
+void SharedPool::push(unsigned char *buffer)
+{
+	stack.push(buffer);
+}
+
+unsigned char* SharedPool::pop()
+{
+	if (stack.empty())
+	{
+		if (pool_count == MAX_POOL_SIZE)
+		{
+			return NULL;
+		}
+
+		pool_count++;
+
+		return new unsigned char[buffer_size];
 	}
 
-	Node* node = head;
-	head = node->next;
-	lk.unlock();
+	unsigned char *buffer = stack.top();
+	stack.pop();
 
-	return node;
+	return buffer;
 }

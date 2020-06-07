@@ -1,25 +1,20 @@
 #ifndef __SHARED_CONTAINER__
 #define __SHARED_CONTAINER__
 
+#include <queue>
+#include <stack>
 #include <mutex>
 #include <condition_variable>
 
-#define MAX_POOL_SIZE 10
-
-struct Node
-{
-	Node *next;
-	unsigned char *buffer;
-};
+#define MAX_POOL_SIZE 30
 
 class SharedContainer
 {
 public:
-	SharedContainer();
-	void push(Node *node);
-	Node* pop();
+	void push(unsigned char* buffer);
+	unsigned char* pop(bool wait);
 private:
-	Node *head, *tail;
+	std::queue<unsigned char*> queue;
 	std::mutex rw_mtx;
 	std::condition_variable cv;
 };
@@ -27,15 +22,13 @@ private:
 class SharedPool
 {
 public:
-	SharedPool();
-	~SharedPool();
-	void push(Node *node);
-	Node* pop();
+	SharedPool(int buffer_size);
+	void push(unsigned char *buffer);
+	unsigned char* pop();
 private:
-	Node *head;
-	int count;
-	std::mutex rw_mtx;
-	std::condition_variable cv;
+	int pool_count;
+	int buffer_size;
+	std::stack<unsigned char*> stack;
 };
 
 #endif
