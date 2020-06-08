@@ -344,6 +344,7 @@ int main(int argc, char **argv)
 		}
 		
 		delete [] pixels;
+		delete [] threads;
 
 		int size = videoWidth * videoHeight + ((videoWidth * videoHeight) >> 1);
 		
@@ -394,6 +395,13 @@ int main(int argc, char **argv)
 				fwrite(buffer, sizeof(BYTE), size, pOutFile);
 				pool.push(buffer);
 			}
+		}
+
+		pool.push(NULL);
+
+		while (BYTE *buffer = pool.pop())
+		{
+			delete [] buffer;
 		}
 
 		processingThread.join();
