@@ -34,7 +34,7 @@ RGB* loadBitmapImage(char *file, int *width, int *height)
 	RGB *data = new RGB[bitmapInfoHeader.biWidth * bitmapInfoHeader.biHeight];
 
 	int rowSize = sizeof(RGB) * bitmapInfoHeader.biWidth;
-	rowSize += (rowSize ^ 3 + 1) & 3;
+	rowSize += ((rowSize ^ 3) + 1) & 3;
 
 	if (bitmapInfoHeader.biHeight > 0)
 	{
@@ -46,7 +46,7 @@ RGB* loadBitmapImage(char *file, int *width, int *height)
 	}
 	else
 	{
-		bitmapInfoHeader.biHeight = bitmapInfoHeader.biHeight ^ -1 + 1; //reverse
+		bitmapInfoHeader.biHeight = (bitmapInfoHeader.biHeight ^ -1) + 1; //reverse
 
 		for (int i = 0; i < bitmapInfoHeader.biHeight; i++)
 		{
