@@ -63,9 +63,6 @@ YUV fromRGBToYUV(RGB pixel)
 	_a = _mm_mul_ps(_rgb, _a);
 	_yuv = _mm_add_ps(_yuv, _a);
 
-	_a = _mm_set_ps(0, 127 / 4, 127 / 4, 0);
-	_yuv = _mm_add_ps(_yuv, _a);
-
 	float res[4];
 	_mm_store_ps(res, _yuv);
 
@@ -84,102 +81,92 @@ YUV fromRGBToYUV(RGB pixel)
 	YUV yuv;
 
 	yuv.y = pixel.r * Yr + pixel.g * Yg + pixel.b * Yb;
-	yuv.u = (pixel.r * Ur + pixel.g * Ug + pixel.b * Ub + 127) >> 2;
-	yuv.v = (pixel.r * Vr + pixel.g * Vg + pixel.b * Vb + 127) >> 2;
+	yuv.u = (pixel.r * Ur + pixel.g * Ug + pixel.b * Ub) / 4;
+	yuv.v = (pixel.r * Vr + pixel.g * Vg + pixel.b * Vb) / 4;
 
 	return yuv;
 }
 
 #endif
 
-void fromRGBToYUV420(RGB *pixels, int from, int to, int imageWidth, BYTE *y, BYTE *u, BYTE *v)
-{
-	for (int i = from; i < to; i++)
-	{
-		YUV yuv = fromRGBToYUV(pixels[i]);
+int imageWidth, imageHeight, videoWidth, videoHeight;
+int yOffset, uOffset, vOffset;
+BYTE *y, *u, *v;
 
-		y[i] = yuv.y;
-
-		int offset = (imageWidth >> 1) * ((i / imageWidth) >> 1) + ((i % imageWidth) >> 1);
-
-		u[offset] += yuv.u;
-		v[offset] += yuv.v;
-	}
-}
-
-void overlayFrame(BYTE *yOffset, BYTE *uOffset, BYTE *vOffset, BYTE *y, BYTE *u, BYTE *v,
-		int videoWidth, int imageWidth, int from, int to,int imageHeight)
+void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame, int from, int to)
 {
 	for (int l = from; l < to; l++)
 	{
-		for (int k = 0; k < imageHeight; k++)
+		for (int k = 0; k < imageHeight / 2; k++)
 		{
-			yOffset[2 * k * videoWidth + 2 * l] = y[2 * k * imageWidth + 2 * l];
-			yOffset[2 * k * videoWidth + 2 * l + 1] = y[2 * k * imageWidth + 2 * l + 1];
-			yOffset[(2 * k + 1) * videoWidth + 2 * l] = y[(2 * k + 1) * imageWidth + 2 * l];
-			yOffset[(2 * k + 1) * videoWidth + 2 * l + 1] = y[(2 * k + 1) * imageWidth + 2 * l + 1];
-
-			uOffset[k * (videoWidth >> 1) + l] = u[k * (imageWidth >> 1) + l];
-			vOffset[k * (videoWidth >> 1) + l] = v[k * (imageWidth >> 1) + l];
 		}
 	}
 }
 
-void processingThreadFunction(SharedContainer *Pop, SharedContainer *Push, BYTE *y, BYTE *u, BYTE *v,
-		int videoWidth, int videoHeight, int imageWidth, int imageHeight)
+void processingThreadFunction(SharedContainer *container, int from, int to)
 {
-	//int counter = 0;
-	int numCores = std::thread::hardware_concurrency();
-	std::thread *threads = new std::thread[numCores];
+	int from_div = from / (imageWidth / 2);
+	int from_mod = from / (imageWidth / 2);
+	int to_div = to / (imageWidth / 2);
+	int to_mod = to / (imageWidth / 2);
 
-	int widthOffset = (videoWidth - imageWidth) >> 1;
-	widthOffset += (widthOffset & 1);
-
-	int heightOffset = (videoHeight - imageHeight) >> 1;
-	heightOffset += (heightOffset & 1);
-
-	int division = (imageWidth >> 1) / numCores;
-	int modulo = (imageWidth >> 1) % numCores;
-
-	int yOffset = heightOffset * videoWidth + widthOffset;
-	int uOffset = ((heightOffset * videoWidth) >> 2) + (widthOffset >> 1) + videoWidth * videoHeight;
-	int vOffset = uOffset + (videoWidth * videoHeight >> 2);
-
-	while (true)
+	if (from_div == to_div)
 	{
-		BYTE *frame = Pop->pop(true);
 
-		if (frame == NULL)
+	}
+	else
+	{
+		while (true)
 		{
-			delete [] threads;
-			Push->push(NULL);
-			break;
-		}
+			BYTE *p = container->getPointer();
 
-		//printf("Processing frame: %d\n", counter++);
-		for (int i = 0; i < modulo; i++)
-		{
-			threads[i] = std::thread(overlayFrame, frame + yOffset, frame + uOffset, frame + vOffset, y, u, v,
-					videoWidth, imageWidth, (division + 1) * i, (division + 1) * (i + 1), imageHeight >> 1);
-		}
+			if (p == NULL)
+			{
+				break;
+			}
 
-		for (int i = modulo; i < numCores; i++)
-		{
-			threads[i] = std::thread(overlayFrame, frame + yOffset, frame + uOffset, frame + vOffset, y, u, v,
-					videoWidth, imageWidth, division * i + modulo, division * (i + 1) + modulo, imageHeight >> 1);
-		}
+			BYTE *yFrame = p + yOffset;
+			BYTE *uFrame = p + uOffset;
+			BYTE *vFrame = p + vOffset;
 
-		for (int i = 0; i < modulo; i++)
-		{
-			threads[i].join();
-		}
+			for (int j = from_mod; j < imageWidth / 2; j++)
+			{
+				yFrame[2 * from_div * videoWidth + 2 * j] = y[2 * from_div * imageWidth + 2 * j];
+				yFrame[2 * from_div * videoWidth + 2 * j + 1] = y[2 * from_div * imageWidth + 2 * j + 1];
+				yFrame[(2 * from_div + 1) * videoWidth + 2 * j] = y[(2 * from_div + 1) * imageWidth + 2 * j];
+				yFrame[(2 * from_div + 1) * videoWidth + 2 * j + 1] = y[(2 * from_div + 1) * imageWidth + 2 * j + 1];
 
-		for (int i = modulo; (i < numCores) && (division > 0); i++)
-		{
-			threads[i].join();
-		}
+				uFrame[from_div * (videoWidth / 2) + j] = u[from_div * (imageWidth / 2) + j];
+				vFrame[from_div * (videoWidth / 2) + j] = v[from_div * (imageWidth / 2) + j];
+			}
 
-		Push->push(frame);
+			for (int i = from_mod + 1; i < to_mod; i++)
+			{
+				for (int j = 0; j < imageWidth / 2; j++)
+				{
+					yFrame[2 * i * videoWidth + 2 * j] = y[2 * i * imageWidth + 2 * j];
+					yFrame[2 * i * videoWidth + 2 * j + 1] = y[2 * i * imageWidth + 2 * j + 1];
+					yFrame[(2 * i + 1) * videoWidth + 2 * j] = y[(2 * i + 1) * imageWidth + 2 * j];
+					yFrame[(2 * i + 1) * videoWidth + 2 * j + 1] = y[(2 * i + 1) * imageWidth + 2 * j + 1];
+
+					uFrame[i * (videoWidth / 2) + j] = u[i * (imageWidth / 2) + j];
+					vFrame[i * (videoWidth / 2) + j] = v[i * (imageWidth / 2) + j];
+				}
+			}
+
+			for (int j = 0; j < to_mod; j++)
+			{
+				yFrame[2 * to_div * videoWidth + 2 * j] = y[2 * to_div * imageWidth + 2 * j];
+				yFrame[2 * to_div * videoWidth + 2 * j + 1] = y[2 * to_div * imageWidth + 2 * j + 1];
+				yFrame[(2 * to_div + 1) * videoWidth + 2 * j] = y[(2 * to_div + 1) * imageWidth + 2 * j];
+				yFrame[(2 * to_div + 1) * videoWidth + 2 * j + 1] = y[(2 * to_div + 1) * imageWidth + 2 * j + 1];
+
+				uFrame[to_div * (videoWidth / 2) + j] = u[to_div * (imageWidth / 2) + j];
+				vFrame[to_div * (videoWidth / 2) + j] = v[to_div * (imageWidth / 2) + j];
+			}
+
+			container->processed();
+		}
 	}
 }
 
@@ -256,11 +243,8 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	int videoWidth = std::stoi((std::string)width_arg);
-	int videoHeight = std::stoi((std::string)height_arg);
-
-	int imageWidth;
-	int imageHeight;
+	videoWidth = std::stoi(width_arg);
+	videoHeight = std::stoi(height_arg);
 
 	RGB *pixels = loadBitmapImage(bmp_file, &imageWidth, &imageHeight);
 
@@ -269,142 +253,127 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	BYTE *y = new BYTE[imageWidth * imageHeight];
-	BYTE *u = new BYTE[(imageWidth * imageHeight) >> 2];
-	BYTE *v = new BYTE[(imageWidth * imageHeight) >> 2];
+	y = new BYTE[imageWidth * imageHeight];
+	u = new BYTE[imageWidth * imageHeight / 4];
+	v = new BYTE[imageWidth * imageHeight / 4];
 
-	for (int i = 0; i < (imageWidth * imageHeight) >> 2; i++)
+	for (int i = 0; i < imageWidth * imageHeight / 4; i++)
 	{
-		u[i] = 0;
-		v[i] = 0;
+		u[i] = 127;
+		v[i] = 127;
 	}
 
+	for (int i = 0; i < imageHeight; i++)
+	{
+		for (int j = 0; j < imageWidth; j++)
+		{
+			YUV yuv = fromRGBToYUV(pixels[i * imageWidth + j]);
+
+			y[i * imageWidth + j] = yuv.y;
+
+			int offset = (i / 2) * (imageWidth / 2) + j / 2;
+
+			u[offset] += yuv.u;
+			v[offset] += yuv.v;
+		}
+	}
+	
+	delete [] pixels;
+
+	int widthOffset = (videoWidth - imageWidth) / 2;
+	widthOffset += (widthOffset & 1);
+
+	int heightOffset = (videoHeight - imageHeight) / 2;
+	heightOffset += (heightOffset & 1);
+
+	yOffset = heightOffset * videoWidth + widthOffset;
+	uOffset = heightOffset * videoWidth / 4 + widthOffset / 2 + videoWidth * videoHeight;
+	vOffset = uOffset + videoWidth * videoHeight / 4;
+
+	int bufferSize = videoWidth * videoHeight + videoWidth * videoHeight / 2;
 	int numCores = std::thread::hardware_concurrency();
 
 	if (numCores == 0 || numCores == 1)
 	{
-		fromRGBToYUV420(pixels, 0, imageWidth * imageHeight, imageWidth, y, u, v);
-
-		delete [] pixels;
-
-		int size = videoWidth * videoHeight + ((videoWidth * videoHeight) >> 1);
-		BYTE *frame = new BYTE[size];
+		BYTE *frame = new BYTE[bufferSize];
 		
 		while (true)
 		{
-			fread(frame, sizeof(BYTE), size, pInFile);
+			fread(frame, sizeof(BYTE), bufferSize, pInFile);
 
 			if(feof(pInFile))
 			{
 				delete [] frame;
 				break;
 			}
-			
-			int widthOffset = (videoWidth - imageWidth) >> 1;
-			widthOffset += (widthOffset & 1);
 
-			int heightOffset = (videoHeight - imageHeight) >> 1;
-			heightOffset += (heightOffset & 1);
+			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset, 0, imageWidth / 2);
 
-			int yOffset = heightOffset * videoWidth + widthOffset;
-			int uOffset = ((heightOffset * videoWidth) >> 2) + (widthOffset >> 1) + videoWidth * videoHeight;
-			int vOffset = uOffset + (videoWidth * videoHeight >> 2);
-
-			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset, y, u, v,
-					videoWidth, imageWidth, 0, imageWidth >> 1, imageHeight >> 1);
-
-			fwrite(frame, sizeof(BYTE), size, pOutFile);
+			fwrite(frame, sizeof(BYTE), bufferSize, pOutFile);
 		}
 	}
 	else
 	{
-		int division = (imageWidth * imageHeight) / numCores;
-		int modulo = (imageWidth * imageHeight) % numCores;
+		SharedStack stack(bufferSize);
+		SharedQueue read_queue;
+		SharedQueue write_queue;
+		SharedContainer container(&read_queue, &write_queue, numCores);
 
-		std::thread *threads = new std::thread[numCores];
+		std::thread *processingThreads = new std::thread[numCores];
 
-		for (int i = 0; i < modulo; i++)
+		int div = (imageWidth * imageHeight / 4) / numCores;
+		int mod = (imageWidth * imageHeight / 4) & numCores;
+
+		for (int i = 0; i < mod; i++)
 		{
-			threads[i] = std::thread(fromRGBToYUV420, pixels, (division + 1) * i, (division + 1) * (i + 1), imageWidth, y, u, v);
+			processingThreads[i] = std::thread(processingThreadFunction, &container, (div + 1) * i, (div + 1) * (i + 1));
 		}
 
-		for (int i = modulo; (i < numCores) && (division > 0); i++)
+		for (int i = mod; i < numCores; i++)
 		{
-			threads[i] = std::thread(fromRGBToYUV420, pixels, division * i + modulo, division * (i + 1) + modulo, imageWidth, y, u, v); 
+			processingThreads[i] = std::thread(processingThreadFunction, &container, div * i + mod, div * (i + 1) + mod);
 		}
-
-		for (int i = 0; i < modulo; i++)
-		{
-			threads[i].join();
-		}
-
-		for (int i = modulo; (i < numCores) && (division > 0); i++)
-		{
-			threads[i].join();
-		}
-		
-		delete [] pixels;
-		delete [] threads;
-
-		int size = videoWidth * videoHeight + ((videoWidth * videoHeight) >> 1);
-		
-		SharedPool pool(size);
-		SharedContainer read_container;
-		SharedContainer write_container;
-
-		std::thread processingThread(processingThreadFunction, &read_container, &write_container, y, u, v,
-				videoWidth, videoHeight, imageWidth, imageHeight);
-
-		//int read_counter = 0;
-		//int write_counter = 0;
 
 		while (true)
 		{
-			BYTE *buffer = pool.pop();
+			BYTE *buffer = stack.pop();
 
 			if (buffer == NULL)
 			{
-				buffer = write_container.pop(true);
-				//printf("Writing frame: %d\n", write_counter++);
-				fwrite(buffer, sizeof(BYTE), size, pOutFile);
+				buffer = write_queue.pop();
+				fwrite(buffer, sizeof(BYTE), bufferSize, pOutFile);
 			}
 
-			fread(buffer, sizeof(BYTE), size, pInFile);
+			fread(buffer, sizeof(BYTE), bufferSize, pInFile);
 
 			if(feof(pInFile))
 			{
-				read_container.push(NULL);
-				pool.push(buffer);
+				read_queue.push(NULL);
+				stack.push(buffer);
 
-				while (buffer = write_container.pop(true))
+				while (buffer = write_queue.pop())
 				{
-					//printf("Writing frame: %d\n", write_counter++);
-					fwrite(buffer, sizeof(BYTE), size, pOutFile);
-					pool.push(buffer);
+					fwrite(buffer, sizeof(BYTE), bufferSize, pOutFile);
+					stack.push(buffer);
 				}
 
 				break;
 			}
 
-			//printf("Reading frame: %d\n", read_counter++);
-			read_container.push(buffer);
-
-			while (buffer = write_container.pop(false))
-			{
-				//printf("Writing frame: %d\n", write_counter++);
-				fwrite(buffer, sizeof(BYTE), size, pOutFile);
-				pool.push(buffer);
-			}
+			read_queue.push(buffer);
 		}
 
-		pool.push(NULL);
+		stack.push(NULL);
 
-		while (BYTE *buffer = pool.pop())
+		while (BYTE *buffer = stack.pop())
 		{
 			delete [] buffer;
 		}
 
-		processingThread.join();
+		for (int i = 0; i < numCores; i++)
+		{
+			processingThreads[i].join();
+		}
 	}
 
 	fclose(pInFile);
