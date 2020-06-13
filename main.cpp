@@ -93,80 +93,35 @@ int imageWidth, imageHeight, videoWidth, videoHeight;
 int yOffset, uOffset, vOffset;
 BYTE *y, *u, *v;
 
-void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame, int from, int to)
+void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame)
 {
-	for (int l = from; l < to; l++)
+	for (int i = 0; i < imageHeight / 2; i++)
 	{
-		for (int k = 0; k < imageHeight / 2; k++)
+		for (int j = 0; j < imageWidth / 2; j++)
 		{
+			yFrame[2 * i * videoWidth + 2 * j] = y[2 * i * imageWidth + 2 * j];
+			yFrame[2 * i * videoWidth + 2 * j + 1] = y[2 * i * imageWidth + 2 * j + 1];
+			yFrame[(2 * i + 1) * videoWidth + 2 * j] = y[(2 * i + 1) * imageWidth + 2 * j];
+			yFrame[(2 * i + 1) * videoWidth + 2 * j + 1] = y[(2 * i + 1) * imageWidth + 2 * j + 1];
+
+			uFrame[i * (videoWidth / 2) + j] = u[i * (imageWidth / 2) + j];
+			vFrame[i * (videoWidth / 2) + j] = v[i * (imageWidth / 2) + j];
 		}
-	}
+	}	
 }
 
-void processingThreadFunction(SharedContainer *container, int from, int to)
+void processingThreadFunction(SharedContainer *container)
 {
-	int from_div = from / (imageWidth / 2);
-	int from_mod = from / (imageWidth / 2);
-	int to_div = to / (imageWidth / 2);
-	int to_mod = to / (imageWidth / 2);
-
-	if (from_div == to_div)
+	while (true)
 	{
+		BYTE *frame = container->getFrame();
 
-	}
-	else
-	{
-		while (true)
+		if (frame == NULL)
 		{
-			BYTE *p = container->getPointer();
-
-			if (p == NULL)
-			{
-				break;
-			}
-
-			BYTE *yFrame = p + yOffset;
-			BYTE *uFrame = p + uOffset;
-			BYTE *vFrame = p + vOffset;
-
-			for (int j = from_mod; j < imageWidth / 2; j++)
-			{
-				yFrame[2 * from_div * videoWidth + 2 * j] = y[2 * from_div * imageWidth + 2 * j];
-				yFrame[2 * from_div * videoWidth + 2 * j + 1] = y[2 * from_div * imageWidth + 2 * j + 1];
-				yFrame[(2 * from_div + 1) * videoWidth + 2 * j] = y[(2 * from_div + 1) * imageWidth + 2 * j];
-				yFrame[(2 * from_div + 1) * videoWidth + 2 * j + 1] = y[(2 * from_div + 1) * imageWidth + 2 * j + 1];
-
-				uFrame[from_div * (videoWidth / 2) + j] = u[from_div * (imageWidth / 2) + j];
-				vFrame[from_div * (videoWidth / 2) + j] = v[from_div * (imageWidth / 2) + j];
-			}
-
-			for (int i = from_mod + 1; i < to_mod; i++)
-			{
-				for (int j = 0; j < imageWidth / 2; j++)
-				{
-					yFrame[2 * i * videoWidth + 2 * j] = y[2 * i * imageWidth + 2 * j];
-					yFrame[2 * i * videoWidth + 2 * j + 1] = y[2 * i * imageWidth + 2 * j + 1];
-					yFrame[(2 * i + 1) * videoWidth + 2 * j] = y[(2 * i + 1) * imageWidth + 2 * j];
-					yFrame[(2 * i + 1) * videoWidth + 2 * j + 1] = y[(2 * i + 1) * imageWidth + 2 * j + 1];
-
-					uFrame[i * (videoWidth / 2) + j] = u[i * (imageWidth / 2) + j];
-					vFrame[i * (videoWidth / 2) + j] = v[i * (imageWidth / 2) + j];
-				}
-			}
-
-			for (int j = 0; j < to_mod; j++)
-			{
-				yFrame[2 * to_div * videoWidth + 2 * j] = y[2 * to_div * imageWidth + 2 * j];
-				yFrame[2 * to_div * videoWidth + 2 * j + 1] = y[2 * to_div * imageWidth + 2 * j + 1];
-				yFrame[(2 * to_div + 1) * videoWidth + 2 * j] = y[(2 * to_div + 1) * imageWidth + 2 * j];
-				yFrame[(2 * to_div + 1) * videoWidth + 2 * j + 1] = y[(2 * to_div + 1) * imageWidth + 2 * j + 1];
-
-				uFrame[to_div * (videoWidth / 2) + j] = u[to_div * (imageWidth / 2) + j];
-				vFrame[to_div * (videoWidth / 2) + j] = v[to_div * (imageWidth / 2) + j];
-			}
-
-			container->processed();
+			break;
 		}
+
+		overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset);
 	}
 }
 
@@ -202,46 +157,11 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (bmp_file == NULL)
-	{
-		printf("BMP file is not specified\n");
-		return 0;
-	}
-
-	if (yuv_file == NULL)
-	{
-		printf("YUV file is not specified\n");
-		return 0;
-	}
-	
-	if (width_arg == NULL)
-	{
-		printf("Width is not specified\n");
-		return 0;
-	}
-
-	if (height_arg == NULL)
-	{
-		printf("Height is not specified\n");
-		return 0;
-	}
-
-	if (output_file == NULL)
-	{
-		output_file = "output.yuv";
-	}
-
 	FILE *pInFile;
 	FILE *pOutFile;
 
 	pInFile = fopen(yuv_file, "rb");
 	pOutFile = fopen(output_file, "wb");
-
-	if (pInFile == NULL)
-	{
-		printf("YUV file is not found\n");
-		return 0;
-	}
 
 	videoWidth = std::stoi(width_arg);
 	videoHeight = std::stoi(height_arg);
@@ -307,73 +227,50 @@ int main(int argc, char **argv)
 				break;
 			}
 
-			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset, 0, imageWidth / 2);
+			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset);
 
 			fwrite(frame, sizeof(BYTE), bufferSize, pOutFile);
 		}
 	}
 	else
 	{
-		SharedStack stack(bufferSize);
-		SharedQueue read_queue;
-		SharedQueue write_queue;
-		SharedContainer container(&read_queue, &write_queue, numCores);
+		SharedContainer container(numCores, bufferSize);
 
 		std::thread *processingThreads = new std::thread[numCores];
 
-		int div = (imageWidth * imageHeight / 4) / numCores;
-		int mod = (imageWidth * imageHeight / 4) & numCores;
-
-		for (int i = 0; i < mod; i++)
+		for (int i = 0; i < numCores; i++)
 		{
-			processingThreads[i] = std::thread(processingThreadFunction, &container, (div + 1) * i, (div + 1) * (i + 1));
+			processingThreads[i] = std::thread(processingThreadFunction, &container);
 		}
 
-		for (int i = mod; i < numCores; i++)
-		{
-			processingThreads[i] = std::thread(processingThreadFunction, &container, div * i + mod, div * (i + 1) + mod);
-		}
+		BYTE *buffer = new BYTE[bufferSize * numCores];
+		int bytesNum = fread(buffer, sizeof(BYTE), bufferSize * numCores, pInFile);
+		container.changeBuffer(buffer, bytesNum);
 
+		buffer = new BYTE[bufferSize * numCores];
+		
 		while (true)
 		{
-			BYTE *buffer = stack.pop();
-
-			if (buffer == NULL)
-			{
-				buffer = write_queue.pop();
-				fwrite(buffer, sizeof(BYTE), bufferSize, pOutFile);
-			}
-
-			fread(buffer, sizeof(BYTE), bufferSize, pInFile);
-
 			if(feof(pInFile))
 			{
-				read_queue.push(NULL);
-				stack.push(buffer);
-
-				while (buffer = write_queue.pop())
-				{
-					fwrite(buffer, sizeof(BYTE), bufferSize, pOutFile);
-					stack.push(buffer);
-				}
-
+				delete [] buffer;
+				buffer = container.changeBuffer(buffer, 0);
+				fwrite(buffer, sizeof(BYTE), bytesNum, pOutFile);
+				delete [] buffer;
 				break;
 			}
 
-			read_queue.push(buffer);
-		}
-
-		stack.push(NULL);
-
-		while (BYTE *buffer = stack.pop())
-		{
-			delete [] buffer;
+			bytesNum = fread(buffer, sizeof(BYTE), bufferSize * numCores, pInFile);
+			buffer = container.changeBuffer(buffer, bytesNum);
+			fwrite(buffer, sizeof(BYTE), bufferSize * numCores, pOutFile);
 		}
 
 		for (int i = 0; i < numCores; i++)
 		{
 			processingThreads[i].join();
 		}
+
+		delete [] processingThreads;
 	}
 
 	fclose(pInFile);

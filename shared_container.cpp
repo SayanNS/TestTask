@@ -1,116 +1,60 @@
 #include "shared_container.h"
 
-SharedContainer::SharedContainer(SharedQueue *readQueue, SharedQueue *writeQueue, int numThreads)
+SharedContainer::SharedContainer(int numThreads, int stride)
 {
-	this->wCounter = 0;
-	this->rCounter = numThreads;
+	invokeCounter = 0;
+	this->stride = stride;
 	this->numThreads = numThreads;
-	this->readQueue = readQueue;
-	this->writeQueue = writeQueue;
 }
 
-unsigned char *SharedContainer::getPointer()
+unsigned char *SharedContainer::getFrame()
 {
-	mtx.lock();
+	std::unique_lock<std::mutex> lk(r_mtx);
 
-	if (rCounter == numThreads)
+	if (++invokeCounter == numThreads)
 	{
-		buffer = readQueue->pop();
-
-		if (buffer == NULL)
-		{
-			writeQueue->push(NULL);
-		}
-
-		rCounter = 0;
+		w_cv.notify_one();
 	}
 
-	rCounter++;
-	unsigned char *pointer = buffer;
-	mtx.unlock();
+	r_cv.wait(lk);
 
-	return pointer;
-}
-
-void SharedContainer::processed()
-{
-	std::unique_lock<std::mutex> lk(mtx);
-
-	if (++wCounter == numThreads)
+	if (numBytes < stride)
 	{
-		writeQueue->push(buffer);
-		wCounter = 0;
+		numThreads--;
 		lk.unlock();
-		cv.notify_all();
-	}
-	else
-	{
-		cv.wait(lk);
-		lk.unlock();
-	}
-}
 
-void SharedQueue::push(unsigned char* buffer)
-{
-	rw_mtx.lock();
-
-	if (empty())
-	{
-		queue::push(buffer);
-		rw_mtx.unlock();
-		cv.notify_one();
-	}
-	else
-	{
-		queue::push(buffer);
-		rw_mtx.unlock();
-	}
-}
-
-unsigned char *SharedQueue::pop()
-{
-	std::unique_lock<std::mutex> lk(rw_mtx);
-
-	if (empty())
-	{
-		cv.wait(lk);
+		return NULL;
 	}
 
-	unsigned char *buffer = front();
-	queue::pop();
+	numBytes -= stride;
+	unsigned char *temp = buffer + numBytes;
 	lk.unlock();
 
-	return buffer;
+	return temp;	
 }
 
-SharedStack::SharedStack(int buffer_size)
+unsigned char *SharedContainer::changeBuffer(unsigned char *buffer, int numBytes)
 {
-	pool_count = 0;
+	r_mtx.lock();
 
-	this->buffer_size = buffer_size;
-}
-
-void SharedStack::push(unsigned char *buffer)
-{
-	stack::push(buffer);
-}
-
-unsigned char* SharedStack::pop()
-{
-	if (empty())
+	if (invokeCounter == numThreads)
 	{
-		if (pool_count == MAX_POOL_SIZE)
-		{
-			return nullptr;
-		}
-
-		pool_count++;
-
-		return new unsigned char[buffer_size];
+		r_mtx.unlock();
+	}
+	else
+	{
+		std::unique_lock<std::mutex> lk(w_mtx);
+		r_mtx.unlock();
+		w_cv.wait(lk);
+		r_mtx.lock();
 	}
 
-	unsigned char *buffer = top();
-	stack::pop();
+	unsigned char *temp = this->buffer;
+	this->buffer = buffer;
+	this->numBytes = numBytes;
+	invokeCounter = 0;
+	r_mtx.unlock();
+	r_cv.notify_all();
 
-	return buffer;
+	return temp;
 }
