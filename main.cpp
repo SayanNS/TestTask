@@ -133,8 +133,8 @@ int main(int argc, char **argv)
 	pInFile = fopen(yuv_file, "rb");
 	pOutFile = fopen(output_file, "wb");
 
-	videoWidth = std::stoi(width_arg);
-	videoHeight = std::stoi(height_arg);
+	videoWidth = atoi(width_arg);
+	videoHeight = atoi(height_arg);
 
 	RGB *pixels = loadBitmapImage(bmp_file, &imageWidth, &imageHeight);
 
