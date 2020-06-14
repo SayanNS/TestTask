@@ -1,4 +1,4 @@
-#include "shared_container.h"
+#include "include/shared_container.h"
 
 SharedContainer::SharedContainer(int numThreads, int stride)
 {
@@ -18,7 +18,7 @@ unsigned char *SharedContainer::getFrame()
 
 	r_cv.wait(lk);
 
-	if (numBytes < stride)
+	if (numBytes == 0)
 	{
 		numThreads--;
 		lk.unlock();
@@ -37,11 +37,7 @@ unsigned char *SharedContainer::changeBuffer(unsigned char *buffer, int numBytes
 {
 	r_mtx.lock();
 
-	if (invokeCounter == numThreads)
-	{
-		r_mtx.unlock();
-	}
-	else
+	if (invokeCounter != numThreads)
 	{
 		std::unique_lock<std::mutex> lk(w_mtx);
 		r_mtx.unlock();
@@ -51,6 +47,7 @@ unsigned char *SharedContainer::changeBuffer(unsigned char *buffer, int numBytes
 
 	unsigned char *temp = this->buffer;
 	this->buffer = buffer;
+	numBytes -= numBytes % stride;
 	this->numBytes = numBytes;
 	invokeCounter = 0;
 	r_mtx.unlock();

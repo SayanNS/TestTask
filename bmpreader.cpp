@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "bmpreader.h"
+#include "include/bmpreader.h"
 
 RGB* loadBitmapImage(char *file, int *width, int *height)
 {
