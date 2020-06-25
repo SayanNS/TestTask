@@ -46,7 +46,7 @@ RGB* loadBitmapImage(char *file, int *width, int *height)
 	}
 	else
 	{
-		bitmapInfoHeader.biHeight = (bitmapInfoHeader.biHeight ^ -1) + 1; //reverse
+		bitmapInfoHeader.biHeight = -bitmapInfoHeader.biHeight;
 
 		for (int i = 0; i < bitmapInfoHeader.biHeight; i++)
 		{

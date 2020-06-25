@@ -50,20 +50,16 @@ YUV fromRGBToYUV(RGB pixel)
 {
 	YUV yuv;
 
-	yuv.y = pixel.r * Yr + pixel.g * Yg + pixel.b * Yb;
-	yuv.u = (pixel.r * Ur + pixel.g * Ug + pixel.b * Ub) / 4;
-	yuv.v = (pixel.r * Vr + pixel.g * Vg + pixel.b * Vb) / 4;
+	yuv.y = BYTE(pixel.r * Yr + pixel.g * Yg + pixel.b * Yb);
+	yuv.u = BYTE((pixel.r * Ur + pixel.g * Ug + pixel.b * Ub) / 4);
+	yuv.v = BYTE((pixel.r * Vr + pixel.g * Vg + pixel.b * Vb) / 4);
 
 	return yuv;
 }
 
 #endif
 
-int imageWidth, imageHeight, videoWidth, videoHeight;
-int yOffset, uOffset, vOffset;
-BYTE *y, *u, *v;
-
-void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame)
+void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame, BYTE *y, BYTE *u, BYTE *v, int imageWidth, int imageHeight, int videoWidth, int videoHeight)
 {
 	for (int i = 0; i < imageHeight / 2; i++)
 	{
@@ -80,7 +76,7 @@ void overlayFrame(BYTE *yFrame, BYTE *uFrame, BYTE *vFrame)
 	}	
 }
 
-void processingThreadFunction(SharedContainer *container)
+void processingThreadFunction(SharedContainer *container, BYTE *y, BYTE *u, BYTE *v, int imageWidth, int imageHeight, int videoWidth, int videoHeight, int yOffset, int uOffset, int vOffset)
 {
 	while (true)
 	{
@@ -91,7 +87,7 @@ void processingThreadFunction(SharedContainer *container)
 			break;
 		}
 
-		overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset);
+		overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset, y, u, v, imageWidth, imageHeight, videoWidth, videoHeight);
 	}
 }
 
@@ -133,19 +129,26 @@ int main(int argc, char **argv)
 	pInFile = fopen(yuv_file, "rb");
 	pOutFile = fopen(output_file, "wb");
 
-	videoWidth = atoi(width_arg);
-	videoHeight = atoi(height_arg);
+	if (pInFile == NULL)
+	{
+		printf("YUV file not found");
+		return 1;
+	}
+
+	int imageWidth, imageHeight;
+	int videoWidth = atoi(width_arg);
+	int videoHeight = atoi(height_arg);
 
 	RGB *pixels = loadBitmapImage(bmp_file, &imageWidth, &imageHeight);
 
 	if (pixels == NULL)
 	{
-		return 0;
+		return 1;
 	}
 
-	y = new BYTE[imageWidth * imageHeight];
-	u = new BYTE[imageWidth * imageHeight / 4];
-	v = new BYTE[imageWidth * imageHeight / 4];
+	BYTE *y = new BYTE[imageWidth * imageHeight];
+	BYTE *u = new BYTE[imageWidth * imageHeight / 4];
+	BYTE *v = new BYTE[imageWidth * imageHeight / 4];
 
 	for (int i = 0; i < imageWidth * imageHeight / 4; i++)
 	{
@@ -176,20 +179,20 @@ int main(int argc, char **argv)
 	int heightOffset = (videoHeight - imageHeight) / 2;
 	heightOffset += (heightOffset & 1);
 
-	yOffset = heightOffset * videoWidth + widthOffset;
-	uOffset = heightOffset * videoWidth / 4 + widthOffset / 2 + videoWidth * videoHeight;
-	vOffset = uOffset + videoWidth * videoHeight / 4;
+	int yOffset = heightOffset * videoWidth + widthOffset;
+	int uOffset = heightOffset * videoWidth / 4 + widthOffset / 2 + videoWidth * videoHeight;
+	int vOffset = uOffset + videoWidth * videoHeight / 4;
 
-	int bufferSize = videoWidth * videoHeight + videoWidth * videoHeight / 2;
+	int frameSize = videoWidth * videoHeight + videoWidth * videoHeight / 2;
 	int numCores = std::thread::hardware_concurrency();
 
-	if (numCores == 0 || numCores == 1 || FORCE_SINGLE_THREADING)
+	if (numCores == 0 || numCores == 1)
 	{
-		BYTE *frame = new BYTE[bufferSize];
+		BYTE *frame = new BYTE[frameSize];
 		
 		while (true)
 		{
-			fread(frame, sizeof(BYTE), bufferSize, pInFile);
+			fread(frame, sizeof(BYTE), frameSize, pInFile);
 
 			if(feof(pInFile))
 			{
@@ -197,42 +200,46 @@ int main(int argc, char **argv)
 				break;
 			}
 
-			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset);
-
-			fwrite(frame, sizeof(BYTE), bufferSize, pOutFile);
+			overlayFrame(frame + yOffset, frame + uOffset, frame + vOffset, y, u, v, imageWidth, imageHeight, videoWidth, videoHeight);
+			fwrite(frame, sizeof(BYTE), frameSize, pOutFile);
 		}
 	}
 	else
 	{
-		SharedContainer container(numCores, bufferSize);
+		// Wrapping class for sensitive data accessed by main and processing threads
+		SharedContainer container(numCores, frameSize);
 
 		std::thread *processingThreads = new std::thread[numCores];
 
 		for (int i = 0; i < numCores; i++)
 		{
-			processingThreads[i] = std::thread(processingThreadFunction, &container);
+			processingThreads[i] = std::thread(processingThreadFunction, &container, y, u, v, imageWidth, imageHeight, videoWidth, videoHeight, yOffset, uOffset, vOffset);
 		}
 
-		BYTE *buffer = new BYTE[bufferSize * numCores];
-		int bytesNum = fread(buffer, sizeof(BYTE), bufferSize * numCores, pInFile);
+		// buffer for storing data of as many frames as many threads
+		BYTE *buffer = new BYTE[frameSize * numCores];
+		// read as many frames as many cores on machine.
+		int bytesNum = fread(buffer, sizeof(BYTE), frameSize * numCores, pInFile);
+		// set buffer on processing
 		container.changeBuffer(buffer, bytesNum);
-
-		buffer = new BYTE[bufferSize * numCores];
+		// second buffer for reading next chunk of data when first buffer is being processed
+		buffer = new BYTE[frameSize * numCores];
 		
 		while (true)
 		{
 			if (feof(pInFile))
 			{
 				delete [] buffer;
-				buffer = container.changeBuffer(buffer, 0);
+				buffer = container.changeBuffer(nullptr, 0);
 				fwrite(buffer, sizeof(BYTE), bytesNum, pOutFile);
 				delete [] buffer;
 				break;
 			}
 
-			bytesNum = fread(buffer, sizeof(BYTE), bufferSize * numCores, pInFile);
+			bytesNum = fread(buffer, sizeof(BYTE), frameSize * numCores, pInFile);
+			// gets processed buffer and sets readed buffer on processing
 			buffer = container.changeBuffer(buffer, bytesNum);
-			fwrite(buffer, sizeof(BYTE), bufferSize * numCores, pOutFile);
+			fwrite(buffer, sizeof(BYTE), frameSize * numCores, pOutFile);
 		}
 
 		for (int i = 0; i < numCores; i++)

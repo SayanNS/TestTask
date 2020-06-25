@@ -1,9 +1,9 @@
 #include "include/shared_container.h"
 
-SharedContainer::SharedContainer(int numThreads, int stride)
+SharedContainer::SharedContainer(int numThreads, int frameStride)
 {
 	invokeCounter = 0;
-	this->stride = stride;
+	this->frameStride = frameStride;
 	this->numThreads = numThreads;
 }
 
@@ -13,11 +13,15 @@ unsigned char *SharedContainer::getFrame()
 
 	if (++invokeCounter == numThreads)
 	{
+ 		// The last thread notifies main thread that buffer is ready for writing
 		w_cv.notify_one();
 	}
 
-	r_cv.wait(lk);
+	// Wait for other threads to complete processing frames to be sure that entire buffer is
+	// processed and is ready for writing 
+	r_cv.wait(lk); 
 
+	// if there is no data then finish the thread
 	if (numBytes == 0)
 	{
 		numThreads--;
@@ -26,17 +30,19 @@ unsigned char *SharedContainer::getFrame()
 		return NULL;
 	}
 
-	numBytes -= stride;
+	numBytes -= frameStride;
 	unsigned char *temp = buffer + numBytes;
 	lk.unlock();
 
 	return temp;	
 }
 
+// main thread changes read data buffer and processed data buffer
 unsigned char *SharedContainer::changeBuffer(unsigned char *buffer, int numBytes)
 {
 	r_mtx.lock();
 
+	// check if threads still processing data then wait for them
 	if (invokeCounter != numThreads)
 	{
 		std::unique_lock<std::mutex> lk(w_mtx);
@@ -47,7 +53,6 @@ unsigned char *SharedContainer::changeBuffer(unsigned char *buffer, int numBytes
 
 	unsigned char *temp = this->buffer;
 	this->buffer = buffer;
-	numBytes -= numBytes % stride;
 	this->numBytes = numBytes;
 	invokeCounter = 0;
 	r_mtx.unlock();

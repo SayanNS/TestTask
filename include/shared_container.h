@@ -12,7 +12,7 @@ public:
 	unsigned char *getFrame();
 private:
 	unsigned char *buffer;
-	int stride, numThreads, invokeCounter, numBytes;
+	int frameStride, numThreads, invokeCounter, numBytes;
 	std::mutex r_mtx, w_mtx;
 	std::condition_variable r_cv, w_cv;
 };

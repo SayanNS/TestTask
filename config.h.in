@@ -1,4 +1,3 @@
-#define FORCE_SINGLE_THREADING @FORCE_SINGLE_THREADING@
 #define @MODE@
 
 #ifdef SDTV
